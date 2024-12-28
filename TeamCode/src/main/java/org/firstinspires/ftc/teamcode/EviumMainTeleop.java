@@ -1,14 +1,18 @@
 package org.firstinspires.ftc.teamcode;
 
+import com.qualcomm.hardware.rev.Rev2mDistanceSensor;
 import com.qualcomm.hardware.rev.RevTouchSensor;
 import com.qualcomm.hardware.sparkfun.SparkFunOTOS;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.ServoImplEx;
 
+import org.firstinspires.ftc.robotcontroller.external.samples.SensorREV2mDistance;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
 @TeleOp(name="EviumMainTeleop", group="TeleOp")
 public class EviumMainTeleop extends OpMode {
@@ -18,7 +22,8 @@ public class EviumMainTeleop extends OpMode {
     private DcMotor frontRightMotor;
     private DcMotor backLeftMotor;
     private DcMotor backRightMotor;
-    private DcMotor cap;
+    private DcMotorEx cap;
+    private DcMotorEx cap2;
     private DcMotor spindle;
     private SparkFunOTOS odometry;
     private RevTouchSensor Lswitch;
@@ -30,7 +35,12 @@ public class EviumMainTeleop extends OpMode {
     private boolean LSTopOut;
     private boolean LSTopToggling;
     private double lolclock = 0.01;
+    private double vindoViper = 0;
+    private boolean switchViperDirection = false;
     private double capPower;
+    private Rev2mDistanceSensor frontDistance;
+    private Rev2mDistanceSensor backDistance;
+    private PIDController distancePID = new PIDController();
 
     // Servos
     private ServoImplEx LSLower;
@@ -38,6 +48,7 @@ public class EviumMainTeleop extends OpMode {
 
     @Override
     public void init() {
+        distancePID.init(0.1, 0, 0);
         frontLeftMotor = hardwareMap.get(DcMotor.class, "leftFront");
         frontRightMotor = hardwareMap.get(DcMotor.class, "rightFront");
         backLeftMotor = hardwareMap.get(DcMotor.class, "leftBack");
@@ -45,10 +56,13 @@ public class EviumMainTeleop extends OpMode {
 
         spindle = hardwareMap.get(DcMotor.class, "spindle");
         odometry = hardwareMap.get(SparkFunOTOS.class, "odometry");
-        cap = hardwareMap.get(DcMotor.class, "cap");
+        cap = hardwareMap.get(DcMotorEx.class, "cap");
+        cap2 = hardwareMap.get(DcMotorEx.class, "cap2");
         LSLower = hardwareMap.get(ServoImplEx.class, "LSLower");
         LSTop = hardwareMap.get(ServoImplEx.class, "LSTop");
         Lswitch = hardwareMap.get(RevTouchSensor.class, "Lswitch");
+        frontDistance = hardwareMap.get(Rev2mDistanceSensor.class, "frontDistance");
+        backDistance = hardwareMap.get(Rev2mDistanceSensor.class, "backDistance");
 
 
         // Define Servo range
@@ -70,6 +84,7 @@ public class EviumMainTeleop extends OpMode {
         backRightMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
 
         cap.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        cap2.setDirection(DcMotorSimple.Direction.REVERSE);
         spindle.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
         // Breaking mode
@@ -107,9 +122,13 @@ public class EviumMainTeleop extends OpMode {
             y = -gamepad1.left_stick_y * 0.2;
             x = gamepad1.left_stick_x * 0.5;
             rx = gamepad1.right_stick_x * 0.25;
+        } else if (gamepad1.a) {
+            y = - distancePID.getOutput(frontDistance.getDistance(DistanceUnit.INCH), 5.8);
+            x = gamepad1.left_stick_x;
+            rx = gamepad1.right_stick_x;
         } else {
-            y = Math.pow(-gamepad1.left_stick_y, 3);
-            x = Math.pow(gamepad1.left_stick_x, 3);
+            y = -gamepad1.left_stick_y;
+            x = gamepad1.left_stick_x;
             rx = gamepad1.right_stick_x;
         }
 
@@ -130,6 +149,21 @@ public class EviumMainTeleop extends OpMode {
             LSLower.setPosition(0.5 - lolclock);
             LSTop.setPosition(0.5 + lolclock);
         }
+        if ((gamepad2.b) || (gamepad1.b)) {
+            if (vindoViper > 0.94) {
+                switchViperDirection = true;
+            }
+            if (vindoViper < 0.06) {
+                switchViperDirection = false;
+            }
+            if (switchViperDirection) {
+                vindoViper = vindoViper - 0.05;
+            } else {
+                vindoViper = vindoViper + 0.05;
+            }
+            LSLower.setPosition(1 - vindoViper);
+            LSTop.setPosition(1 - vindoViper);
+        }
         if (cap.getCurrentPosition() > 675) {
             capPower = -0.25;
         } else {
@@ -140,19 +174,20 @@ public class EviumMainTeleop extends OpMode {
             }
         }
         cap.setPower(capPower);
+        cap2.setPower(capPower);
         if (Lswitch.isPressed()) {
             telemetry.speak("Warning Capstan. Pull Up");
+            cap.setPower(capPower * 0.1);
             cap.setPower(capPower * 0.1);
         }
         spindle.setPower(-gamepad2.left_stick_y * 0.75);
         // Telemetry for debugging
         SparkFunOTOS.Pose2D pos = odometry.getPosition();
+        telemetry.addData("DistanceFront", frontDistance.getDistance(DistanceUnit.INCH));
         telemetry.addData("OdoX", pos.x);
         telemetry.addData("OdoY", pos.y);
         telemetry.addData("Angle", pos.h);
-        telemetry.addData("lstop", LSTop.getPosition());
-        telemetry.addData("lsbottom", LSLower.getPosition());
-        telemetry.addData("Left Stick Y", gamepad2.left_stick_y);
+        telemetry.addData("CapstanInDanger?", LSTop.getPosition());
         telemetry.update();
     }
 }
